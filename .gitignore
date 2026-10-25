@@ -1,0 +1,25 @@
+# Secrets: never commit
+.env
+.env.*
+!.env.example
+.mcp.json
+*.key
+*.pem
+
+# Local data and runtime
+pgdata/
+*.sqlite
+*.db
+runs/*
+!runs/.gitkeep
+__pycache__/
+.venv/
+.pytest_cache/
+
+# n8n exports with credentials must be cleaned before they land in workflows/
+*.credentials.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
