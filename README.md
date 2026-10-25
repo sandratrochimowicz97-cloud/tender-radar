@@ -1,8 +1,6 @@
 # Tender radar for design practices
 
-> **Status: in progress (v1 being built, Oct-Nov 2026).** Sections marked *pending* fill in as the build runs. No numbers here are estimates: each one comes from a real run.
-
-**Proves:** idempotency, retries and where state lives · human approval before anything is acted on · MCP server · agentic workflow that runs daily · evals on hand-labelled data · documentation and handover.
+> **Status: in progress (v1, Oct-Nov 2026).** Sections marked *pending* are filled in from real runs, never estimates.
 
 Every morning it pulls new public architecture tenders and design competitions from the EU's TED database, keeps each one exactly once in Postgres, and asks one question per tender: *can this practice qualify, and with which of its past projects?* A partner approves what to pursue. Nothing happens without that click.
 
@@ -38,6 +36,7 @@ Only 2 of the steps call a model. Everything else is deterministic code, because
 
 ## Run it yourself
 Requirements: Docker Desktop, n8n (self-hosted), an Anthropic API key.
+For permission to run this in a practice, get in touch.
 ```bash
 cp .env.example .env          # fill in your own values; .env is never committed
 docker compose up -d          # starts Postgres and creates the tables from db/schema.sql
@@ -50,7 +49,11 @@ docker compose up -d          # starts Postgres and creates the tables from db/s
 - Decisions and the reasons for them: [docs/decisions.md](docs/decisions.md).
 
 ## Data
-Tender data comes from TED (Tenders Electronic Daily), the EU's public procurement journal, through its open Search API. The practice, its profile and its reference projects are **invented** for this demo.
+Tender data comes from [TED](https://ted.europa.eu) (Tenders Electronic Daily), the EU's public procurement journal, through its open Search API. Under the [TED legal notice](https://ted.europa.eu/en/legal-notice), procurement notices can be freely reused. Source: TED, Publications Office of the European Union. This project is independent and not endorsed by the EU.
+
+Notices can contain contact persons' names and emails. These stay in the local database only and are never committed or shown in examples.
+
+The practice, its profile and its reference projects are **invented** for this demo. Any resemblance to a real firm or project is unintended.
 
 ## License
-MIT
+Copyright © 2026 Sandra Trochimowicz. All rights reserved. You may read the code here; using, copying, modifying or selling it needs written permission. See [LICENSE](LICENSE).

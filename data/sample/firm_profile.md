@@ -1,6 +1,6 @@
 # Firm profile (invented for this demo)
 
-**Practice:** Nordlys Arkitekter, a fictional 40-person architecture and landscape practice in Copenhagen and Malmö.
+**Practice:** "Sample Practice", a fictional 40-person architecture and landscape practice working in Denmark and Sweden. Not a real firm.
 
 ## What we pursue
 - **Typologies:** schools and daycare, libraries and cultural buildings, housing (social and student), public space and landscape.
