@@ -1,11 +1,20 @@
-# Tender radar for design practices
+# Tender go/no-go assistant for design practices
 
 > **Status: in progress (v1, Oct-Nov 2026).** Sections marked *pending* are filled in from real runs, never estimates.
 
-Every morning it pulls new public architecture tenders and design competitions from the EU's TED database, keeps each one exactly once in Postgres, and asks one question per tender: *can this practice qualify, and with which of its past projects?* A partner approves what to pursue. Nothing happens without that click.
+An in-house assistant that screens public architecture tenders the way a practice's own partner would, and learns that judgment over time.
+
+Every morning it pulls new tenders and design competitions from the EU's TED database, keeps each one exactly once in Postgres, and answers one question per tender: *can this practice qualify, and with which of its own past projects?* It recommends **go**, **conditional go** or **no-go**, with every claim backed by a quote from the notice. A partner decides, and gives a reason. Nothing happens without that decision.
 
 ## The problem
 Design practices bid on public tenders and competitions to win work. Finding the right ones is slow: notices are scattered, written in many languages, and most don't fit. The ones that do fit often ask for comparable reference projects, so the real question isn't "is this relevant?" but "do we qualify, and with what?"
+
+## What it does differently
+Commercial tender platforms already find tenders and summarise them well (see [docs/decisions.md](docs/decisions.md) for what was studied). This project focuses on three things they don't advertise:
+
+1. **It checks the practice's own references.** It doesn't stop at "the tender requires 3 school references". It answers "you qualify with projects 01 and 05; you're missing a third school over 5,000 m²".
+2. **It learns from the partner's decisions.** Every go/no-go is stored with its reason. Agreement between recommendation and decision is measured each week, and reasons that repeat become rules.
+3. **It runs in the practice's own setup.** References, decisions and logs stay in the practice's own database, and the model can be swapped.
 
 ## How it works
 ```
@@ -13,11 +22,13 @@ TED Search API (pre-filtered: architecture CPV codes, chosen countries, open dea
    -> Postgres: insert once (idempotency key = source + notice ID + content hash), status = new
    -> rule step (plain code): deadline, value, procedure type -> filtered_out + reason
    -> relevance judge (model, structured JSON, validated) -> shortlisted / not_relevant
-   -> explain (model, shortlist only): reasons + 2-3 closest reference projects
-   -> digest -> partner approves or rejects -> Postgres records who and when
+   -> go/no-go assessment (model, shortlist only): requirements with source quotes,
+      reference fit against the practice's own projects, recommendation, max 3 open questions
+   -> digest -> partner decides go / no-go + reason -> decisions table
+   -> weekly: agreement between recommendations and decisions; repeated reasons -> new rules
    -> MCP server (read-only): "which school competitions in Scandinavia close this month?"
 ```
-Only 2 of the steps call a model. Everything else is deterministic code, because ten chained steps that are each 95% reliable succeed together only about 60% of the time.
+Only 2 of the steps call a model (relevance, assessment). Everything else is deterministic code, because ten chained steps that are each 95% reliable succeed together only about 60% of the time.
 
 ## How it fails safely
 | Risk | What the system does |
@@ -26,12 +37,13 @@ Only 2 of the steps call a model. Everything else is deterministic code, because
 | Laptop off for days | Each run reads the last successful run from the `runs` table and fetches from there |
 | Model returns invalid output | Validated against a schema; repaired up to 2 times; then the tender is marked `failed` and an alert goes out |
 | Model calls cost too much | Every call is logged in `model_calls` with tokens and cost |
-| Something gets acted on by mistake | Only a person can set `approved`; the system never contacts anyone |
+| Something gets acted on by mistake | Only a person can record a decision; the system never contacts anyone |
+| Model invents a requirement | Every extracted requirement must carry a quote from the notice; no quote, no claim |
 
 ## Measured benefit
 *Pending, filled from real runs only:*
 - **Time:** minutes a person spends screening a week of notices by hand vs. reviewing the radar's shortlist.
-- **Accuracy:** agreement between the relevance judge and hand labels on 30 tenders.
+- **Accuracy:** agreement between the recommendation and a partner's go/no-go on 30 tenders.
 - **Cost:** model cost per daily run, from `model_calls`.
 
 ## What broke and how I fixed it
