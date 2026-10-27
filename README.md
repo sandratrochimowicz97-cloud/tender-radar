@@ -28,8 +28,11 @@ Only 2 of the steps call a model. Everything else is deterministic code, because
 | Model calls cost too much | Every call is logged in `model_calls` with tokens and cost |
 | Something gets acted on by mistake | Only a person can set `approved`; the system never contacts anyone |
 
-## Result
-*Pending:* agreement between the relevance judge and hand labels on 30 tenders, and cost per daily run.
+## Measured benefit
+*Pending, filled from real runs only:*
+- **Time:** minutes a person spends screening a week of notices by hand vs. reviewing the radar's shortlist.
+- **Accuracy:** agreement between the relevance judge and hand labels on 30 tenders.
+- **Cost:** model cost per daily run, from `model_calls`.
 
 ## What broke and how I fixed it
 *Pending:* taken from [docs/failure-log.md](docs/failure-log.md) once the radar runs daily.
