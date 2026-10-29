@@ -71,6 +71,8 @@ In your n8n, add a Postgres credential: host `localhost`, port `5432`, and the d
 
 Postgres and n8n are reachable only from the same machine.
 
+*n8n Cloud is not supported in v1: the database stays on the practice's own machine, and a cloud n8n can't reach it without exposing it to the internet.*
+
 *Pending:* importing the n8n workflow, and the MCP server.
 
 ## Handover
