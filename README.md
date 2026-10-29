@@ -67,7 +67,7 @@ n8n runs at http://localhost:5679, on its own port so it never clashes with anot
 ```bash
 docker compose up -d db       # starts only Postgres
 ```
-In your n8n, add a Postgres credential: host `localhost`, port `5432`, and the database, user and password from your `.env`. Then import the workflow.
+In your n8n, add a Postgres credential: host `localhost`, port `5432`, and the database, user and password from your `.env`. Then import the workflow. If `localhost` gives "Connection refused", use `127.0.0.1` instead.
 
 Postgres and n8n are reachable only from the same machine.
 
