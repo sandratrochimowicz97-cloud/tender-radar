@@ -56,7 +56,7 @@ For permission to run this in a practice, get in touch.
 cp .env.example .env          # fill in your own values; .env is never committed
 docker compose up -d          # starts Postgres (creates the tables from db/schema.sql) and n8n
 ```
-n8n then runs at http://localhost:5679, on its own port so it never clashes with another n8n. Postgres and n8n are reachable only from the same machine.
+n8n then runs at http://localhost:5679, on its own port so it never clashes with another n8n. Postgres and n8n are reachable only from the same machine. Already run n8n? Start only the database with `docker compose up -d db` and connect your n8n to localhost:5432.
 *Pending:* importing the n8n workflow, and the MCP server.
 
 ## Handover
