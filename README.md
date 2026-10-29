@@ -47,9 +47,6 @@ Only 2 of the steps call a model (relevance, assessment). Everything else is det
 - **Accuracy:** agreement between the recommendation and a partner's go/no-go on 30 tenders.
 - **Cost:** model cost per daily run, from `model_calls`.
 
-## What broke and how I fixed it
-Every real failure is logged in [docs/failure-log.md](docs/failure-log.md) with its cause and fix. First entry: n8n couldn't connect to Postgres on Windows because `localhost` resolved to IPv6 while the database listens on `127.0.0.1` only; fixed by using `127.0.0.1`, and the setup steps now say so.
-
 ## Run it yourself
 Requirements: Docker Desktop and an Anthropic API key.
 For permission to run this in a practice, get in touch.
@@ -68,13 +65,21 @@ n8n runs at http://localhost:5679, on its own port so it never clashes with anot
 ```bash
 docker compose up -d db       # starts only Postgres
 ```
-In your n8n, add a Postgres credential: host `localhost`, port `5432`, and the database, user and password from your `.env`. Then import the workflow. If `localhost` gives "Connection refused", use `127.0.0.1` instead.
+In your n8n, add a Postgres credential: host `localhost`, port `5432`, and the database, user and password from your `.env`. Then import the workflow.
 
 Postgres and n8n are reachable only from the same machine.
 
 *n8n Cloud is not supported in v1: the database stays on the practice's own machine, and a cloud n8n can't reach it without exposing it to the internet.*
 
 *Pending:* importing the n8n workflow, and the MCP server.
+
+**Troubleshooting**
+
+| Symptom | Fix |
+|---|---|
+| n8n can't connect to Postgres: "Connection refused" | Use host `127.0.0.1` instead of `localhost`. On Windows, `localhost` can resolve to IPv6, while the database listens on IPv4 only. |
+
+Incident history: [docs/failure-log.md](docs/failure-log.md).
 
 ## Security and data
 Built to run on a practice's own machine with real data.
