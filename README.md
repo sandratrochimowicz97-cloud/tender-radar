@@ -50,12 +50,13 @@ Only 2 of the steps call a model (relevance, assessment). Everything else is det
 *Pending:* taken from [docs/failure-log.md](docs/failure-log.md) once the radar runs daily.
 
 ## Run it yourself
-Requirements: Docker Desktop, n8n (self-hosted), an Anthropic API key.
+Requirements: Docker Desktop and an Anthropic API key. n8n comes with the setup.
 For permission to run this in a practice, get in touch.
 ```bash
 cp .env.example .env          # fill in your own values; .env is never committed
-docker compose up -d          # starts Postgres and creates the tables from db/schema.sql
+docker compose up -d          # starts Postgres (creates the tables from db/schema.sql) and n8n
 ```
+n8n then runs at http://localhost:5679, on its own port so it never clashes with another n8n. Postgres and n8n are reachable only from the same machine.
 *Pending:* importing the n8n workflow, and the MCP server.
 
 ## Handover

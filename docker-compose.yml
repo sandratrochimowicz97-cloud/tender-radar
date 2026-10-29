@@ -15,5 +15,25 @@ services:
       timeout: 5s
       retries: 5
 
+  n8n:
+    # official image, pinned to the current stable release (licence: n8n Sustainable Use License, see docs/decisions.md)
+    image: docker.n8n.io/n8nio/n8n:2.45.6
+    restart: unless-stopped
+    ports:
+      # own port so it never clashes with another n8n on 5678; localhost only
+      - "127.0.0.1:${N8N_PORT:-5679}:5678"
+    environment:
+      - GENERIC_TIMEZONE=Europe/Copenhagen
+      - TZ=Europe/Copenhagen
+      # no usage data sent to n8n
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+    volumes:
+      - n8ndata:/home/node/.n8n
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  n8ndata:
