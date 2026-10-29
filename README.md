@@ -75,6 +75,17 @@ Postgres and n8n are reachable only from the same machine.
 
 *Pending:* importing the n8n workflow, and the MCP server.
 
+## Security and data
+Built to run on a practice's own machine with real data.
+- **Data never leaves the practice's machine except in the 2 judgment AI steps inside the n8n workflow** (relevance and go/no-go). Everything else is plain code.
+- **Those 2 steps use the practice's own Anthropic API key.** Under Anthropic's commercial terms, API data is not used for model training and is kept for 30 days by default ([data usage](https://code.claude.com/docs/en/data-usage), [retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention)).
+- **Postgres and n8n listen on localhost only.** Nothing is reachable from the network.
+- **Secrets stay in `.env`,** which is never committed (see `.gitignore`).
+- **AI coding assistants can't read secrets.** [.claude/settings.json](.claude/settings.json) denies reading `.env`, `.mcp.json`, key files and n8n's own folder, asks before commands that delete data, and turns off the mode that skips permission prompts. A hook ([protect-secrets.js](.claude/hooks/protect-secrets.js)) blocks any command or search that names a secrets file. Per the [Claude Code docs](https://code.claude.com/docs/en/permissions), these rules cover Claude's own tools, not every program, so the same file also turns on Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) for OS-level isolation. The sandbox runs on macOS, Linux and WSL2; on native Windows, run Claude Code inside WSL2 to get it.
+- **n8n workflows can't read environment variables** (`N8N_BLOCK_ENV_ACCESS_IN_NODE=true` in the Docker setup), and n8n stores credentials encrypted.
+- **Personal data in TED notices** (contact persons) stays in the local database and is never committed.
+- **With client data,** a data processing agreement names Anthropic as sub-processor.
+
 ## Handover
 - **Change what the practice looks for:** edit [data/sample/firm_profile.md](data/sample/firm_profile.md) and [data/sample/reference_projects.csv](data/sample/reference_projects.csv). No code changes.
 - **The practice owns the context** (profile, references, labels, logs). The model is swappable.
