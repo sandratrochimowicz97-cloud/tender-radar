@@ -50,13 +50,27 @@ Only 2 of the steps call a model (relevance, assessment). Everything else is det
 *Pending:* taken from [docs/failure-log.md](docs/failure-log.md) once the radar runs daily.
 
 ## Run it yourself
-Requirements: Docker Desktop and an Anthropic API key. n8n comes with the setup.
+Requirements: Docker Desktop and an Anthropic API key.
 For permission to run this in a practice, get in touch.
 ```bash
 cp .env.example .env          # fill in your own values; .env is never committed
+```
+Then pick how to run n8n. The workflow is the same in both.
+
+**Option A: everything in Docker (recommended)**
+```bash
 docker compose up -d          # starts Postgres (creates the tables from db/schema.sql) and n8n
 ```
-n8n then runs at http://localhost:5679, on its own port so it never clashes with another n8n. Postgres and n8n are reachable only from the same machine. Already run n8n? Start only the database with `docker compose up -d db` and connect your n8n to localhost:5432.
+n8n runs at http://localhost:5679, on its own port so it never clashes with another n8n. This is the same setup on every machine, and it matches where n8n is heading (version 3.0 is Docker-only).
+
+**Option B: an n8n you already self-host**
+```bash
+docker compose up -d db       # starts only Postgres
+```
+In your n8n, add a Postgres credential: host `localhost`, port `5432`, and the database, user and password from your `.env`. Then import the workflow.
+
+Postgres and n8n are reachable only from the same machine.
+
 *Pending:* importing the n8n workflow, and the MCP server.
 
 ## Handover
