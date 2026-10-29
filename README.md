@@ -18,7 +18,8 @@ Commercial tender platforms already find tenders and summarise them well (see [d
 
 ## How it works
 ```
-TED Search API (pre-filtered: architecture CPV codes, chosen countries, open deadlines)
+TED Search API (architecture and landscape CPV codes, published since the last successful run)
+   -> fetch step (plain code): keep the practice's countries, calls for tenders and design contests only
    -> Postgres: insert once (idempotency key = source + notice ID + content hash), status = new
    -> rule step (plain code): deadline, value, procedure type -> filtered_out + reason
    -> relevance judge (model, structured JSON, validated) -> shortlisted / not_relevant
@@ -34,7 +35,7 @@ Only 2 of the steps call a model (relevance, assessment). Everything else is det
 | Risk | What the system does |
 |---|---|
 | Same notice fetched twice | Unique key on source + notice ID + content hash; the insert does nothing |
-| Laptop off for days | Each run reads the last successful run from the `runs` table and fetches from there |
+| Machine off for days | Each run reads the last successful run from the `runs` table and fetches from there |
 | Model returns invalid output | Validated against a schema; repaired up to 2 times; then the tender is marked `failed` and an alert goes out |
 | Model calls cost too much | Every call is logged in `model_calls` with tokens and cost |
 | Something gets acted on by mistake | Only a person can record a decision; the system never contacts anyone |
@@ -42,12 +43,12 @@ Only 2 of the steps call a model (relevance, assessment). Everything else is det
 
 ## Measured benefit
 *Pending, filled from real runs only:*
-- **Time:** minutes a person spends screening a week of notices by hand vs. reviewing the radar's shortlist.
+- **Time:** minutes a person spends screening a week of notices by hand vs. reviewing the assistant's shortlist.
 - **Accuracy:** agreement between the recommendation and a partner's go/no-go on 30 tenders.
 - **Cost:** model cost per daily run, from `model_calls`.
 
 ## What broke and how I fixed it
-*Pending:* taken from [docs/failure-log.md](docs/failure-log.md) once the radar runs daily.
+Every real failure is logged in [docs/failure-log.md](docs/failure-log.md) with its cause and fix. First entry: n8n couldn't connect to Postgres on Windows because `localhost` resolved to IPv6 while the database listens on `127.0.0.1` only; fixed by using `127.0.0.1`, and the setup steps now say so.
 
 ## Run it yourself
 Requirements: Docker Desktop and an Anthropic API key.

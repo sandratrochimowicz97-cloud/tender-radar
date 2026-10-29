@@ -10,8 +10,6 @@
 pgdata/
 *.sqlite
 *.db
-runs/*
-!runs/.gitkeep
 __pycache__/
 .venv/
 .pytest_cache/

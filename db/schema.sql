@@ -1,4 +1,4 @@
--- Tender radar: state lives here, not in the workflow.
+-- Tender go/no-go assistant: state lives here, not in the workflow.
 -- One row per tender notice. Re-running ingest never creates duplicates.
 
 CREATE TABLE IF NOT EXISTS tenders (
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS tenders (
 CREATE INDEX IF NOT EXISTS tenders_status_idx   ON tenders (status);
 CREATE INDEX IF NOT EXISTS tenders_deadline_idx ON tenders (deadline);
 
--- One row per run: lets a run after a laptop-off gap catch up from the last success.
+-- One row per run: lets a run after downtime catch up from the last success.
 CREATE TABLE IF NOT EXISTS runs (
     id            BIGSERIAL PRIMARY KEY,
     started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
