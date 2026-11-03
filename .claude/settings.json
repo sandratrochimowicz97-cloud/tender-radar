@@ -9,7 +9,8 @@
       "Read(**/*.pem)",
       "Read(**/*.credentials.json)",
       "Read(~/.n8n/**)",
-      "Read(~/.ssh/**)"
+      "Read(~/.ssh/**)",
+      "Read(./n8n-data/**)"
     ],
     "ask": [
       "Bash(docker compose down *)",

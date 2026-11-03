@@ -7,7 +7,7 @@ process.stdin.on('end', () => {
   let call;
   try { call = JSON.parse(input); } catch { process.exit(0); }
   const text = JSON.stringify(call.tool_input ?? {});
-  const secret = /(^|[^\w.])\.env(?!\.example)(?![\w])|\.mcp\.json|\.(key|pem)\b|credentials\.json|[\\/]\.n8n([\\/]|\b)|[\\/]\.ssh\b/;
+  const secret = /(^|[^\w.])\.env(?!\.example)(?![\w])|\.mcp\.json|\.(key|pem)\b|credentials\.json|[\\/]\.n8n([\\/]|\b)|n8n-data|[\\/]\.ssh\b/;
   if (secret.test(text)) {
     process.stderr.write('Blocked: secrets (.env, .mcp.json, key files, ~/.n8n, ~/.ssh) are off limits.\n');
     process.exit(2);
