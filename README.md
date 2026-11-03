@@ -75,7 +75,9 @@ Postgres and n8n are reachable only from the same machine.
 
 *n8n Cloud is not supported in v1: the database stays on the practice's own machine, and a cloud n8n can't reach it without exposing it to the internet.*
 
-*Pending:* importing the n8n workflow, and the MCP server.
+**Import the workflow:** in n8n, create a workflow, open the **⋯** menu, choose **Import from File** and pick `n8n/tender-radar-1-fetch-ted.json`. In both Postgres steps, select your Postgres credential. Run it once with **Execute workflow**; after that it runs every morning at 07:00 and catches up on missed days.
+
+*Pending:* the AI steps and the MCP server.
 
 **Troubleshooting**
 
