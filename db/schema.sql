@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS tenders (
     requirements    JSONB,                             -- extracted: required references, turnover, certificates, team, deadlines; each with source quote
     reference_fit   JSONB,                             -- which of our reference projects meet each required reference, and what is missing
     recommendation  TEXT
-        CHECK (recommendation IN ('go','conditional_go','no_go')),
+        CHECK (recommendation IN ('go','conditional_go','unresolved','no_go')),
     open_questions  TEXT[],                            -- at most 3 things to clarify before deciding
     explanation     TEXT,                              -- short reasons in plain language
     first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -84,5 +84,6 @@ CREATE TABLE IF NOT EXISTS decisions (
     recommendation  TEXT,                              -- what the system recommended at the time (copied, so later changes don't rewrite history)
     decided_by      TEXT   NOT NULL,
     decided_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    outcome         TEXT CHECK (outcome IN ('won','lost','not_submitted')),  -- filled in after the award; empty until known
     CONSTRAINT one_decision_per_tender UNIQUE (tender_id)
 );

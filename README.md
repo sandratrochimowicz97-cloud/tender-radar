@@ -4,17 +4,18 @@
 
 An in-house assistant that screens public architecture tenders the way a practice's own partner would, and learns that judgment over time.
 
-Every morning it pulls new tenders and design competitions from the EU's TED database, keeps each one exactly once in Postgres, and answers one question per tender: *can this practice qualify, and with which of its own past projects?* It recommends **go**, **conditional go** or **no-go**, with every claim backed by a quote from the notice. A partner decides, and gives a reason. Nothing happens without that decision.
+Every morning it pulls new tenders and design competitions from the EU's TED database, keeps each one exactly once in Postgres, and answers one question per tender: *can this practice qualify, and with which of its own past projects?* It recommends **go**, **conditional go**, **unresolved** or **no-go**, with every claim backed by a quote from the notice. A partner decides, and gives a reason. Nothing happens without that decision.
 
 ## The problem
 Design practices bid on public tenders and competitions to win work. Finding the right ones is slow: notices are scattered, written in many languages, and most don't fit. The ones that do fit often ask for comparable reference projects, so the real question isn't "is this relevant?" but "do we qualify, and with what?"
 
-## What it does differently
-Commercial tender platforms already find tenders and summarise them well (see [docs/decisions.md](docs/decisions.md) for what was studied). This project focuses on three things they don't advertise:
+## What it focuses on
+Finding tenders is the easy part. The hard part is deciding which ones are worth the bid. This project focuses on two things:
 
-1. **It checks the practice's own references.** It doesn't stop at "the tender requires 3 school references". It answers "you qualify with projects 01 and 05; you're missing a third school over 5,000 m²".
-2. **It learns from the partner's decisions.** Every go/no-go is stored with its reason. Agreement between recommendation and decision is measured each week, and reasons that repeat become rules.
-3. **It runs in the practice's own setup.** References, decisions and logs stay in the practice's own database, and the model can be swapped.
+1. **It learns from the practice's own track record.** Every go/no-go is stored with its reason and, later, the outcome (won, lost, not submitted). Agreement between recommendation and decision is measured each week, reasons that repeat become rules, and past outcomes on similar tenders are shown with each new assessment.
+2. **It runs in the practice's own setup.** References, decisions and logs stay in the practice's own database, under the practice's own API key, and the model can be swapped.
+
+**How the check works:** the model only extracts each requirement from the notice, with a quote. Plain code then compares the requirements with the practice's own reference projects and facts, and decides: *go*, *conditional go*, *unresolved* or *no-go*. For example: "you qualify with projects 01 and 05; you're missing a third school over 5,000 m²". If a requirement isn't stated in the notice, the result is *unresolved*, never a guess.
 
 ## How it works
 ```
@@ -23,13 +24,15 @@ TED Search API (architecture and landscape CPV codes, published since the last s
    -> Postgres: insert once (idempotency key = source + notice ID + content hash), status = new
    -> rule step (plain code): deadline, value, procedure type -> filtered_out + reason
    -> relevance judge (model, structured JSON, validated) -> shortlisted / not_relevant
-   -> go/no-go assessment (model, shortlist only): requirements with source quotes,
-      reference fit against the practice's own projects, recommendation, max 3 open questions
+   -> go/no-go assessment (model, shortlist only): extracts each requirement with a source quote
+   -> fit check (plain code): requirements vs the practice's own projects and facts
+      -> go / conditional go / unresolved / no-go, max 3 open questions
    -> digest -> partner decides go / no-go + reason -> decisions table
+   -> after the award: outcome (won / lost / not submitted) -> decisions table
    -> weekly: agreement between recommendations and decisions; repeated reasons -> new rules
    -> MCP server (read-only): "which school competitions in Scandinavia close this month?"
 ```
-Only 2 of the steps call a model (relevance, assessment). Everything else is deterministic code, because ten chained steps that are each 95% reliable succeed together only about 60% of the time.
+Only 2 of the steps call a model (relevance, requirement extraction). Everything else is deterministic code, because ten chained steps that are each 95% reliable succeed together only about 60% of the time.
 
 ## How it fails safely
 | Risk | What the system does |
@@ -40,6 +43,7 @@ Only 2 of the steps call a model (relevance, assessment). Everything else is det
 | Model calls cost too much | Every call is logged in `model_calls` with tokens and cost |
 | Something gets acted on by mistake | Only a person can record a decision; the system never contacts anyone |
 | Model invents a requirement | Every extracted requirement must carry a quote from the notice; no quote, no claim |
+| Requirement not stated in the notice | Result is *unresolved*; the system never guesses |
 
 ## Measured benefit
 *Pending, filled from real runs only:*
