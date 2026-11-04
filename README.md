@@ -65,17 +65,19 @@ docker compose up -d          # starts Postgres (creates the tables from db/sche
 ```
 n8n runs at http://localhost:5679, on its own port so it never clashes with another n8n. This is the same setup on every machine, and it matches where n8n is heading (version 3.0 is Docker-only).
 
-**Option B: an n8n you already self-host**
+**Option B: n8n without Docker**
 ```bash
 docker compose up -d db       # starts only Postgres
 ```
-In your n8n, add a Postgres credential: host `localhost`, port `5432`, and the database, user and password from your `.env`. Then import the workflow.
+Requires Node.js and n8n (`npm install -g n8n`). On Windows, double-click `start-n8n.bat`. It starts a separate n8n for this project at http://localhost:5680, with its own data folder (`n8n-data`, never committed) and file access limited to the `output` folder. Any other n8n on the same machine is not affected. In this n8n, add a Postgres credential named `tender-radar Postgres`: host `127.0.0.1`, port `5432`, and the database, user and password from your `.env`.
 
 Postgres and n8n are reachable only from the same machine.
 
 *n8n Cloud is not supported in v1: the database stays on the practice's own machine, and a cloud n8n can't reach it without exposing it to the internet.*
 
-**Import the workflow:** in n8n, create a workflow, open the **⋯** menu, choose **Import from File** and pick `n8n/tender-radar-1-fetch-ted.json`. In both Postgres steps, select your Postgres credential. Run it once with **Execute workflow**; after that it runs every morning at 07:00 and catches up on missed days.
+**Import the workflows:** in n8n, create a workflow, open the **⋯** menu, choose **Import from File** and pick the file. In each Postgres step, select your Postgres credential.
+1. `n8n/fetch-ted-notices.json` fetches new notices every morning at 07:00 and catches up on missed days.
+2. `n8n/daily-tender-list.json` updates the Excel file every morning at 07:15. With option B, set the full path to your `output` folder in its first step, *Settings: Excel file path*.
 
 *Pending:* the AI steps and the MCP server.
 
@@ -84,8 +86,22 @@ Postgres and n8n are reachable only from the same machine.
 | Symptom | Fix |
 |---|---|
 | n8n can't connect to Postgres: "Connection refused" | Use host `127.0.0.1` instead of `localhost`. On Windows, `localhost` can resolve to IPv6, while the database listens on IPv4 only. |
+| Excel workflow stops at *Read Excel file* or *Save Excel file* | Close `Tenders.xlsx` in Excel and run the workflow again. Decisions already in the file are kept. |
+| `start-n8n.bat`: "Task Broker's port 5679 is already in use" | Another n8n is running. The file sets its own helper port (`N8N_RUNNERS_BROKER_PORT=5681`); change it if 5681 is taken too. |
 
 Incident history: [docs/failure-log.md](docs/failure-log.md).
+
+## The daily Excel file
+One file, `output/Tenders.xlsx`, updated in place every morning. It is never committed.
+
+**How it is used:** the person who handles bids opens it in the morning, reads the rows marked *GO* or *CONDITIONAL* and the one-line *Why*, and opens the notice only for those. Nobody reads every tender.
+- **One row per open tender.** Tenders due today or earlier drop out.
+- **Columns:** Verdict, Why, First step (request to participate or submit tender), Deadline, Days left, Added on, Title, Buyer, Country, Type, Link.
+- **Decision and Reason** are filled in only for tenders the practice actually considered, usually a few a week. Blank means not considered. The reason records what the system can't know, such as capacity, the client relationship or the fee. **Outcome** (won / lost / not submitted) follows after the award, for *go* tenders only.
+- **The next run saves these to the database** before it rebuilds the file, so nothing typed there is lost. Values it doesn't recognise are skipped and listed in the run's output. Tenders marked *go* stay in the file after they close, so the outcome can be filled in.
+- **Why record decisions:** where the partner disagrees with the verdict, the reason shows a rule the system is missing.
+
+*The file is a local Excel file, so it can't be updated while it is open in Excel: the run stops before writing it, and the next run catches up. A practice on Microsoft 365 can use an Excel file in OneDrive or SharePoint instead, which several people can keep open while it updates.*
 
 ## Security and data
 Built to run on a practice's own machine with real data.
