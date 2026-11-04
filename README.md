@@ -1,6 +1,6 @@
 # Tender go/no-go assistant for design practices
 
-> **Status: in progress (v1, Oct-Nov 2026).** Sections marked *pending* are filled in from real runs, never estimates.
+> **Status: in progress (v1, Oct-Nov 2026).** Numbers come from real runs, never estimates.
 
 An in-house assistant that screens public architecture tenders the way a practice's own partner would, and learns that judgment over time.
 
@@ -12,7 +12,7 @@ Design practices bid on public tenders and competitions to win work. Finding the
 ## What it focuses on
 Finding tenders is the easy part. The hard part is deciding which ones are worth the bid. This project focuses on two things:
 
-1. **It learns from the practice's own track record.** Every go/no-go is stored with its reason and, later, the outcome (won, lost, not submitted). Agreement between recommendation and decision is measured each week, reasons that repeat become rules, and past outcomes on similar tenders are shown with each new assessment.
+1. **It learns from the practice's own track record.** Every go/no-go is stored with its reason and, later, the outcome (won, lost, not submitted). The recommendation at the time is stored next to the decision, so agreement can be counted, and a reason that keeps repeating points to a rule the system is missing.
 2. **It runs in the practice's own setup.** References, decisions and logs stay in the practice's own database, under the practice's own API key, and the model can be swapped.
 
 **How the check works:** the model only extracts each requirement from the notice, with a quote. Plain code then compares the requirements with the practice's own reference projects and facts, and decides: *go*, *conditional go*, *unresolved* or *no-go*. For example: "you qualify with projects 01 and 05; you're missing a third school over 5,000 m²". If a requirement isn't stated in the notice, the result is *unresolved*, never a guess.
@@ -46,10 +46,22 @@ Only 1 step calls a model (requirement extraction). Everything else is determini
 | Requirement not stated in the notice | Not checked, never guessed. If nothing can be compared (for example, the requirements are only in the tender documents), the result is *unresolved* (*check yourself*) |
 
 ## Measured benefit
-*Pending, filled from real runs only:*
-- **Time:** minutes a person spends screening a week of notices by hand vs. reviewing the assistant's shortlist.
-- **Accuracy:** agreement between the recommendation and a partner's go/no-go on 30 tenders.
-- **Cost:** model cost per daily run, from `model_calls`.
+From the first real runs (3 fetch runs, early November 2026). Counts, not estimates.
+
+| What | Result |
+|---|---|
+| Notices fetched from TED | 2,287 |
+| Architecture tenders kept (plain-code filter, no model) | 186 (8%) |
+| Assessed by the model step | 180 |
+| Verdicts | 24 GO or CONDITIONAL, 82 NO-GO, 74 CHECK YOURSELF |
+| Cost per tender | $0.0013 |
+| Total model cost, including repeat assessments while the rules were tuned | $1.05 for 784 calls |
+| Failed model calls | 1 (marked *failed*, shown in the Excel file, not retried) |
+| Requirements dropped because their quote was not in the notice | 7, in 7 tenders |
+
+**In practice:** of 2,287 notices, 24 are worth a close read and 74 need a quick look at the notice. The 82 NO-GO tenders are ruled out with a stated reason.
+
+**Not measured:** agreement between the verdicts and a practice's own go/no-go decisions. The practice in this repo is invented, so its decisions would prove nothing. A practice using it records its decisions in the Excel file, and agreement can then be counted from the `decisions` table.
 
 ## Run it yourself
 Requirements: Docker Desktop and an Anthropic API key.
