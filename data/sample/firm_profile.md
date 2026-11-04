@@ -16,3 +16,10 @@
 ## Team limits
 - At most 3 bids in parallel.
 - Bids in Danish, Swedish, Norwegian, German or English.
+
+## Facts the fit check compares against
+Stored in the `practice_facts` table (loaded from [db/seed.sql](../../db/seed.sql)). Invented, like the rest of this practice.
+- Average annual turnover, last 3 years: EUR 4.2 million.
+- Professional indemnity insurance: EUR 2.5 million per claim.
+- Staff: 40 on average over the last 3 years.
+- Most experienced project lead: 15 years.

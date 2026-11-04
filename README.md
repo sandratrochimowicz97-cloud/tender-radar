@@ -22,28 +22,28 @@ Finding tenders is the easy part. The hard part is deciding which ones are worth
 TED Search API (architecture and landscape CPV codes, published since the last successful run)
    -> fetch step (plain code): keep the practice's countries, calls for tenders and design contests only
    -> Postgres: insert once (idempotency key = source + notice ID + content hash), status = new
-   -> rule step (plain code): deadline, value, procedure type -> filtered_out + reason
-   -> relevance judge (model, structured JSON, validated) -> shortlisted / not_relevant
-   -> go/no-go assessment (model, shortlist only): extracts each requirement with a source quote
-   -> fit check (plain code): requirements vs the practice's own projects and facts
-      -> go / conditional go / unresolved / no-go, max 3 open questions
-   -> digest -> partner decides go / no-go + reason -> decisions table
+   -> requirement extraction (model, fixed JSON schema): turnover, insurance, staff, references, price weight,
+      each with a quote from the notice; a value whose quote is not in the notice is dropped
+   -> fit check (plain code): requirements vs the practice's own reference projects and facts
+      -> go / conditional go / unresolved / no-go, one line of why, max 3 things to check
+   -> daily Excel file -> partner decides go / no-go + reason -> decisions table
    -> after the award: outcome (won / lost / not submitted) -> decisions table
    -> weekly: agreement between recommendations and decisions; repeated reasons -> new rules
    -> MCP server (read-only): "which school competitions in Scandinavia close this month?"
 ```
-Only 2 of the steps call a model (relevance, requirement extraction). Everything else is deterministic code, because ten chained steps that are each 95% reliable succeed together only about 60% of the time.
+Only 1 step calls a model (requirement extraction). Everything else is deterministic code, because ten chained steps that are each 95% reliable succeed together only about 60% of the time. The practice's references and facts never go to the model; the comparison runs in code.
 
 ## How it fails safely
 | Risk | What the system does |
 |---|---|
 | Same notice fetched twice | Unique key on source + notice ID + content hash; the insert does nothing |
 | Machine off for days | Each run reads the last successful run from the `runs` table and fetches from there |
-| Model returns invalid output | Validated against a schema; repaired up to 2 times; then the tender is marked `failed` and an alert goes out |
-| Model calls cost too much | Every call is logged in `model_calls` with tokens and cost |
+| Model call fails or stops early | Retried up to 3 times; then the tender is marked `failed`, shown as *Assessment failed* in the Excel file, and not retried automatically, so a broken notice can't cost money every day |
+| Model calls cost too much | At most 300 tenders are assessed per run; every call is logged in `model_calls` with tokens and cost |
 | Something gets acted on by mistake | Only a person can record a decision; the system never contacts anyone |
-| Model invents a requirement | Every extracted requirement must carry a quote from the notice; no quote, no claim |
-| Requirement not stated in the notice | Result is *unresolved*; the system never guesses |
+| Model puts a minimum in the wrong field | Any open requirement that names an amount blocks GO, so it is never marked GO unchecked |
+| Model invents a requirement | Every extracted requirement must carry a quote, and code checks that the quote is in the notice text; if not, the requirement is dropped and logged |
+| Requirement not stated in the notice | Not checked, never guessed. If nothing can be compared (for example, the requirements are only in the tender documents), the result is *unresolved* (*check yourself*) |
 
 ## Measured benefit
 *Pending, filled from real runs only:*
@@ -77,9 +77,12 @@ Postgres and n8n are reachable only from the same machine.
 
 **Import the workflows:** in n8n, create a workflow, open the **⋯** menu, choose **Import from File** and pick the file. In each Postgres step, select your Postgres credential.
 1. `n8n/fetch-ted-notices.json` fetches new notices every morning at 07:00 and catches up on missed days.
-2. `n8n/daily-tender-list.json` updates the Excel file every morning at 07:15. With option B, set the full path to your `output` folder in its first step, *Settings: Excel file path*.
+2. `n8n/assess-tenders.json` assesses new tenders at 07:05. It needs a second credential: **Header Auth**, named `Anthropic API key`, with name `x-api-key` and your Anthropic API key as the value. The model is set in its first step, *Settings*.
+3. `n8n/daily-tender-list.json` updates the Excel file every morning at 07:30. With option B, set the full path to your `output` folder in its first step, *Settings: Excel file path*.
 
-*Pending:* the AI steps and the MCP server.
+With option A, a new database gets the demo practice's references and facts automatically. For a database created earlier, load them once (safe to repeat): `docker compose exec -T db psql -U radar -d tender_radar < db/seed.sql`.
+
+*Pending:* the MCP server.
 
 **Troubleshooting**
 
@@ -96,7 +99,8 @@ One file, `output/Tenders.xlsx`, updated in place every morning. It is never com
 
 **How it is used:** the person who handles bids opens it in the morning, reads the rows marked *GO* or *CONDITIONAL* and the one-line *Why*, and opens the notice only for those. Nobody reads every tender.
 - **One row per open tender.** Tenders due today or earlier drop out.
-- **Columns:** Verdict, Why, First step (request to participate or submit tender), Deadline, Days left, Added on, Title, Buyer, Country, Type, Link.
+- **Columns:** Verdict, Why (what decides the verdict; "Price is 30% of the score" means price counts for 30% when the buyer picks the winner), Also required (other qualifications the notice asks for; standard paperwork left out), First step (request to participate or submit tender), Deadline, Days left, Added on, Title, Buyer, Country, Type, Link.
+- **Second sheet, Reference projects:** the practice's own projects, so an ID such as R01 in the Why can be looked up.
 - **Decision and Reason** are filled in only for tenders the practice actually considered, usually a few a week. Blank means not considered. The reason records what the system can't know, such as capacity, the client relationship or the fee. **Outcome** (won / lost / not submitted) follows after the award, for *go* tenders only.
 - **The next run saves these to the database** before it rebuilds the file, so nothing typed there is lost. Values it doesn't recognise are skipped and listed in the run's output. Tenders marked *go* stay in the file after they close, so the outcome can be filled in.
 - **Why record decisions:** where the partner disagrees with the verdict, the reason shows a rule the system is missing.
@@ -105,8 +109,8 @@ One file, `output/Tenders.xlsx`, updated in place every morning. It is never com
 
 ## Security and data
 Built to run on a practice's own machine with real data.
-- **Data never leaves the practice's machine except in the 2 judgment AI steps inside the n8n workflow** (relevance and go/no-go). Everything else is plain code.
-- **Those 2 steps use the practice's own Anthropic API key.** Under Anthropic's commercial terms, API data is not used for model training and is kept for 30 days by default ([data usage](https://code.claude.com/docs/en/data-usage), [retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention)).
+- **Data never leaves the practice's machine except in the one AI step** (requirement extraction), which sends only the public notice text. The practice's references and facts stay in its own database; the comparison is plain code.
+- **That step uses the practice's own Anthropic API key.** Under Anthropic's commercial terms, API data is not used for model training and is kept for 30 days by default ([data usage](https://code.claude.com/docs/en/data-usage), [retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention)).
 - **Postgres and n8n listen on localhost only.** Nothing is reachable from the network.
 - **Secrets stay in `.env`,** which is never committed (see `.gitignore`).
 - **AI coding assistants can't read secrets.** [.claude/settings.json](.claude/settings.json) denies reading `.env`, `.mcp.json`, key files and n8n's own folder, asks before commands that delete data, and turns off the mode that skips permission prompts. A hook ([protect-secrets.js](.claude/hooks/protect-secrets.js)) blocks any command or search that names a secrets file. Per the [Claude Code docs](https://code.claude.com/docs/en/permissions), these rules cover Claude's own tools, not every program, so the same file also turns on Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) for OS-level isolation. The sandbox runs on macOS, Linux and WSL2; on native Windows, run Claude Code inside WSL2 to get it.
@@ -115,7 +119,7 @@ Built to run on a practice's own machine with real data.
 - **With client data,** a data processing agreement names Anthropic as sub-processor.
 
 ## Handover
-- **Change what the practice looks for:** edit [data/sample/firm_profile.md](data/sample/firm_profile.md) and [data/sample/reference_projects.csv](data/sample/reference_projects.csv). No code changes.
+- **Change what the practice looks for:** edit [data/sample/firm_profile.md](data/sample/firm_profile.md), and the reference projects and facts in [db/seed.sql](db/seed.sql) (the references are also listed in [data/sample/reference_projects.csv](data/sample/reference_projects.csv)). Run the seed file again. No code changes.
 - **The practice owns the context** (profile, references, labels, logs). The model is swappable.
 - Decisions and the reasons for them: [docs/decisions.md](docs/decisions.md).
 

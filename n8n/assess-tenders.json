@@ -1,0 +1,230 @@
+{
+  "name": "Tender radar: assess tenders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7,
+              "triggerAtMinute": 5
+            }
+          ]
+        }
+      },
+      "id": "c1",
+      "name": "Every morning at 07:05",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Settings for the assessment step. Change the model here; nothing else needs to change.\n// Prices are per million tokens, used only to log the cost of each call in model_calls.\nreturn [{ json: {\n  model: 'claude-haiku-5-5',      // the smallest current model; a reading task like this one doesn't need more\n  effort: 'low',                 // extraction is a reading task; low effort keeps cost down\n  price_in_per_mtok: 0.10,\n  price_out_per_mtok: 0.50,\n  // Change this date whenever the extraction or fit rules change: every open tender is then assessed again on the next run.\n  rules_version: '2026-11-05c',\n  // Approximate euro value of one unit, to compare minimums stated in Scandinavian currencies. Update now and then.\n  eur_per: { EUR: 1, DKK: 0.134, SEK: 0.09, NOK: 0.085 },\n  max_tenders_per_run: 300,      // safety cap (about $0.40 with Haiku); the rest wait for the next run\n} }];\n"
+      },
+      "id": "c2",
+      "name": "Settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Open tenders that have no assessment yet, or one made under older rules (latest version of each notice),\n-- plus the practice's references and facts.\n-- Failed assessments are not retried automatically, so a broken notice can't cost money every day.\nWITH latest AS (\n  SELECT DISTINCT ON (source_id) *\n  FROM tenders WHERE source = 'ted'\n  ORDER BY source_id, first_seen_at DESC, id DESC\n), todo AS (\n  SELECT id, source_id, title, country\n  FROM latest\n  WHERE (recommendation IS NULL OR COALESCE(requirements->>'rules_version', '') <> $2) AND status <> 'failed'\n    AND (deadline IS NULL OR deadline::date > current_date)\n  ORDER BY deadline NULLS LAST, id\n  LIMIT $1::int\n)\nSELECT\n  (SELECT COALESCE(json_agg(todo), '[]') FROM todo) AS tenders,\n  (SELECT COALESCE(json_agg(r ORDER BY r.id), '[]') FROM reference_projects r) AS refs,\n  (SELECT COALESCE(json_object_agg(f.name, f.value), '{}') FROM practice_facts f) AS facts,\n  (SELECT id FROM runs WHERE status = 'succeeded' ORDER BY finished_at DESC LIMIT 1) AS run_id;\n",
+        "options": {
+          "queryReplacement": "={{ [ $json.max_tenders_per_run, $json.rules_version ] }}"
+        }
+      },
+      "id": "c3",
+      "name": "Load tenders to assess",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "tenderRadarPg",
+          "name": "tender-radar Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the requirement text of each tender from TED (plain code, no model) and build one model request per tender.\n// TED's Search API is free and needs no key. One request covers up to 250 notices.\nconst s = $('Settings').first().json;\nconst { tenders, refs, facts, run_id } = $input.first().json;\nif (!tenders.length) return [];                                  // nothing new to assess\nif (!refs.length) throw new Error('No reference projects in the database. Run db/seed.sql once, then run this again.');\n\nconst FIELDS = ['publication-number', 'procedure-type', 'title-lot', 'description-proc', 'description-lot',\n  'selection-criterion-lot', 'selection-criterion-name-lot', 'selection-criterion-description-lot',\n  'award-criterion-type-lot', 'award-criterion-name-lot', 'award-criterion-description-lot', 'award-criterion-number-weight-lot',\n  'estimated-value-proc', 'estimated-value-cur-proc'];\n\nconst res = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://api.ted.europa.eu/v3/notices/search',\n  body: { query: `publication-number IN (${tenders.map(t => t.source_id).join(' ')})`, fields: FIELDS, limit: 250, page: 1 },\n  json: true,\n});\nconst byId = Object.fromEntries((res.notices || []).map(n => [n['publication-number'], n]));\n\n// TED gives text per language ({deu: [...]}) or plain lists. Keep every value, in the notice's own language.\nconst texts = v => {\n  if (v == null) return [];\n  if (Array.isArray(v)) return v.flatMap(texts);\n  if (typeof v === 'object') return Object.values(v).flatMap(texts);\n  return [String(v)];\n};\nconst section = (label, v) => { const t = [...new Set(texts(v))].join('\\n'); return t ? `## ${label}\\n${t}` : ''; };\n\nconst SYSTEM = `You read one public tender notice for architecture or landscape services and extract its stated requirements into the given JSON schema.\nRules:\n- Use only what the notice text says. If a requirement is not stated, set it to null. Never guess or fill in typical values.\n- Every value you give must have a quote: copy the exact words from the notice, in the notice's own language, short (under 30 words). The quote must appear in the text character for character.\n- Give amounts as stated, with their currency (EUR, DKK, SEK, NOK, or other). Do not convert.\n- Fill a minimum only when the notice states a number. If it only asks bidders to declare their turnover, insurance or staff, leave the value null.\n- \"references\": the minimum number of comparable projects the bidder must show, and what counts as comparable.\n- Insurance: put the highest stated cover amount of any liability insurance (professional, personal injury or property damage) in min_professional_indemnity_eur.\n- Turnover: put the stated minimum annual turnover in min_annual_turnover_eur, whether it is total or for the tendered service.\n- Never put a turnover, insurance, staff or experience amount in other_requirements: use its own field.\n- \"other_requirements\": anything else a bidder must meet that a design practice might not already have: a professional title or chamber registration (architect, landscape architect, engineer), named qualifications or certifications, specific software or BIM formats, language, site presence, specific expertise. Each in a few plain English words (translate; never copy German or other terms into the text), max 8.\n- Leave out standard paperwork every registered firm can provide: commercial or trade register extracts, tax, VAT and social security proof, insurance certificates, self-declarations or ESPD, exclusion grounds, and minimum wage, collective agreement (Tariftreue) or sanctions declarations.\n- If the notice says the requirements are only in the tender documents, set requirements_in_documents_only to true.`;\n\nconst num = { anyOf: [{ type: 'number' }, { type: 'null' }] };\nconst str = { anyOf: [{ type: 'string' }, { type: 'null' }] };\nconst minimum = { type: 'object', additionalProperties: false, required: ['value', 'quote'], properties: { value: num, quote: str } };\nconst money = { type: 'object', additionalProperties: false, required: ['value', 'currency', 'quote'],\n  properties: { value: num, currency: { type: 'string', enum: ['EUR', 'DKK', 'SEK', 'NOK', 'other'] }, quote: str } };\nconst TYPOLOGY = ['school', 'daycare', 'library', 'cultural', 'housing', 'student_housing', 'social_housing', 'public_space',\n  'landscape', 'office', 'healthcare', 'sports', 'infrastructure', 'mixed', 'other', 'not_stated'];\nconst SCHEMA = {\n  type: 'object', additionalProperties: false,\n  required: ['building_type', 'min_annual_turnover_eur', 'min_professional_indemnity_eur', 'min_staff', 'min_lead_experience_years',\n    'references', 'price_weight_percent', 'other_requirements', 'requirements_in_documents_only'],\n  properties: {\n    building_type: { type: 'object', additionalProperties: false, required: ['value', 'quote'],\n      properties: { value: { type: 'string', enum: TYPOLOGY }, quote: str } },\n    min_annual_turnover_eur: money,\n    min_professional_indemnity_eur: money,\n    min_staff: minimum,\n    min_lead_experience_years: minimum,\n    references: { type: 'object', additionalProperties: false,\n      required: ['count', 'building_type', 'min_construction_cost_eur', 'construction_cost_currency', 'min_floor_area_m2', 'within_years', 'quote'],\n      properties: { count: num, building_type: { type: 'string', enum: [...TYPOLOGY, 'same_as_tender', 'any'] },\n        min_construction_cost_eur: num, construction_cost_currency: { type: 'string', enum: ['EUR', 'DKK', 'SEK', 'NOK', 'other'] }, min_floor_area_m2: num, within_years: num, quote: str } },\n    price_weight_percent: minimum,\n    other_requirements: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['text', 'quote'],\n      properties: { text: { type: 'string' }, quote: { type: 'string' } } } },\n    requirements_in_documents_only: { type: 'boolean' },\n  },\n};\n\n// A notice TED doesn't return can't be read: it is reported as \"check yourself\", without a model call.\nif (!Object.keys(byId).length) throw new Error(`TED returned none of the ${tenders.length} notices. Nothing was assessed; the next run tries again.`);\nconst noText = tenders.filter(t => !byId[t.source_id]).map(t => ({ tender_id: t.id, source_id: t.source_id }));\n\nconst out = [];\nfor (const t of tenders.filter(t => byId[t.source_id])) {\n  const n = byId[t.source_id];\n  const text = [\n    section('Title', n['title-lot']),\n    section('Procedure type', n['procedure-type']),\n    section('Description', [n['description-proc'], n['description-lot']]),\n    section('Selection criteria', [n['selection-criterion-lot'], n['selection-criterion-name-lot'], n['selection-criterion-description-lot']]),\n    section('Award criteria', [n['award-criterion-type-lot'], n['award-criterion-name-lot'], n['award-criterion-description-lot'], n['award-criterion-number-weight-lot']]),\n    section('Estimated value', [n['estimated-value-proc'], n['estimated-value-cur-proc']]),\n  ].filter(Boolean).join('\\n\\n');\n  out.push({ json: {\n    tender_id: t.id, source_id: t.source_id, run_id, refs, facts, text, no_text: noText,\n    request_body: {\n      model: s.model,\n      max_tokens: 16000,\n      output_config: { effort: s.effort, format: { type: 'json_schema', schema: SCHEMA } },\n      system: SYSTEM,\n      messages: [{ role: 'user', content: `Tender notice ${t.source_id}:\\n\\n${text}` }],\n    },\n  } });\n}\nreturn out;\n"
+      },
+      "id": "c4",
+      "name": "Fetch notice texts from TED",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2026-10-21"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request_body) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "id": "c5",
+      "name": "Claude: extract requirements with quotes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "anthropicKey",
+          "name": "Anthropic API key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Plain code, no model: check every extracted requirement against the practice's own references and facts,\n// then decide GO / CONDITIONAL / CHECK YOURSELF / NO-GO, write why, and list what else the bidder must have.\nconst s = $('Settings').first().json;\nconst requests = $('Fetch notice texts from TED').all();\nconst responses = $input.all();                       // same order as the requests\n\n// Which of the practice's typologies count as the same kind of project. Schools and daycares are kept apart on purpose.\nconst GROUP = { school: 'school', daycare: 'daycare', library: 'culture', cultural: 'culture', housing: 'housing',\n  student_housing: 'housing', social_housing: 'housing', public_space: 'landscape', landscape: 'landscape' };\nconst NOT_PURSUED = ['healthcare', 'infrastructure'];                      // firm profile: no references, skipped\nconst REF_TYPE = t => String(t).toLowerCase().replace('cultural building', 'cultural').replace(/\\s+/g, '_');\nconst FACT = { min_annual_turnover_eur: ['annual_turnover_eur', 'turnover'], min_professional_indemnity_eur: ['professional_indemnity_eur', 'insurance'],\n  min_staff: ['staff', 'staff'], min_lead_experience_years: ['lead_experience_years', 'lead experience'] };\nconst eur = v => (v >= 1e6 ? `€${+(v / 1e6).toFixed(1)}m` : `€${Math.round(v / 1e3)}k`);\nconst show = (k, v) => (k.endsWith('_eur') ? eur(v) : k === 'min_lead_experience_years' ? `${v} years` : `${v}`);\nconst norm = t => String(t ?? '').replace(/[“”„«»]/g, '\"').replace(/[‘’]/g, \"'\").replace(/\\s+/g, ' ').trim().toLowerCase();\n\nconst rows = [];\nconst calls = [];\nconst fail = (req, reason, usage) => {\n  rows.push({ tender_id: req.tender_id, status: 'failed', status_reason: reason });\n  calls.push({ tender_id: req.tender_id, run_id: req.run_id, ok: false, error: reason, ...usage });\n};\n\nrequests.forEach(({ json: req }, i) => {\n  const res = responses[i]?.json ?? {};\n  const usage = { model: res.model ?? s.model, input_tokens: res.usage?.input_tokens ?? null, output_tokens: res.usage?.output_tokens ?? null };\n  usage.cost_usd = usage.input_tokens == null ? null\n    : (usage.input_tokens * s.price_in_per_mtok + usage.output_tokens * s.price_out_per_mtok) / 1e6;\n  if (res.error) return fail(req, `API call failed: ${JSON.stringify(res.error).slice(0, 300)}`, usage);\n  if (res.stop_reason !== 'end_turn') return fail(req, `Model stopped early: ${res.stop_reason}`, usage);\n  const textBlock = (res.content || []).find(b => b.type === 'text');\n  let x;\n  try { x = JSON.parse(textBlock.text); } catch (e) { return fail(req, 'Model answer was not valid JSON', usage); }\n  calls.push({ tender_id: req.tender_id, run_id: req.run_id, ok: true, error: null, ...usage });\n\n  // No quote, no claim: a requirement whose quote is not in the notice text is dropped.\n  const text = norm(req.text);\n  const dropped = [];\n  const quoted = (field, q) => { if (!q) return false; if (text.includes(norm(q))) return true; dropped.push({ field, quote: q }); return false; };\n  for (const k of [...Object.keys(FACT), 'price_weight_percent', 'building_type']) {\n    if (x[k]?.quote && !quoted(k, x[k].quote)) x[k] = { value: k === 'building_type' ? 'not_stated' : null, quote: null };\n  }\n  if (x.references?.quote && !quoted('references', x.references.quote)) x.references = { count: null, quote: null };\n  x.other_requirements = (x.other_requirements || []).filter(o => quoted('other_requirements', o.quote));\n\n  const checks = [];                                    // {level: fail | partial | check | ok, text}\n  const type = x.building_type?.value ?? 'not_stated';\n  if (NOT_PURSUED.includes(type)) checks.push({ level: 'fail', text: `${type} is not a typology the practice pursues` });\n  else if (['other', 'mixed', 'not_stated'].includes(type)) checks.push({ level: 'check', text: type === 'mixed' ? 'Mixed-use building: check if it fits the practice' : 'Building type not clear from the notice' });\n  else if (!GROUP[type]) checks.push({ level: 'check', text: `${type.replace('_', ' ')} is not one of the practice's usual building types` });\n\n  // Minimums against the practice's facts\n  for (const [k, [factName, label]] of Object.entries(FACT)) {\n    const r = x[k];\n    if (!r?.quote || r.value == null) continue;         // not asked for, or no minimum number stated\n    if (r.currency && !s.eur_per[r.currency]) { checks.push({ level: 'check', blocking: true, text: `${label}: minimum in another currency` }); continue; }\n    r.value = r.value * (r.currency ? s.eur_per[r.currency] : 1);   // compared in euros\n    const have = req.facts[factName];\n    if (have == null) checks.push({ level: 'check', text: `${label}: needs ${show(k, r.value)}; practice fact missing` });\n    else if (Number(have) >= r.value) checks.push({ level: 'ok', text: `${label} OK` });\n    else checks.push({ level: 'fail', text: `needs ${label} ${show(k, r.value)}, practice has ${show(k, Number(have))}` });\n  }\n\n  // References: count the practice's own projects that meet every stated condition\n  const ref = x.references || {};\n  let refFit = null;\n  if (ref.quote && !NOT_PURSUED.includes(type)) {\n    const target = ref.building_type === 'same_as_tender' ? type : ref.building_type;\n    if (ref.min_construction_cost_eur != null) ref.min_construction_cost_eur *= s.eur_per[ref.construction_cost_currency] ?? 1;\n    const year = new Date().getFullYear();\n    // The typology is compared only when the code knows it. \"Comparable\" without a typology is the person's call,\n    // but the cost, area and age limits are still checked: too few projects meeting them is a clear answer.\n    const concrete = Boolean(GROUP[target]);\n    const matched = req.refs.filter(p =>\n      (!concrete || GROUP[REF_TYPE(p.typology)] === GROUP[target])\n      && (ref.min_construction_cost_eur == null || Number(p.budget_eur_m) * 1e6 >= ref.min_construction_cost_eur)\n      && (ref.min_floor_area_m2 == null || Number(p.size_m2) >= ref.min_floor_area_m2)\n      && (ref.within_years == null || Number(p.year) >= year - ref.within_years));\n    const need = ref.count;\n    const what = [target && !['any', 'not_stated', 'other', 'mixed'].includes(target) ? target.replace('_', ' ') : 'comparable', 'references',\n      ref.min_construction_cost_eur != null ? `over ${eur(ref.min_construction_cost_eur)}` : '',\n      ref.min_floor_area_m2 != null ? `over ${ref.min_floor_area_m2} m²` : '',\n      ref.within_years != null ? `from the last ${ref.within_years} years` : ''].filter(Boolean).join(' ');\n    const ids = matched.length && matched.length === req.refs.length ? `any of the ${matched.length} reference projects` : matched.map(p => p.id).join(', ');\n    refFit = { required: need, conditions: { building_type: target, min_construction_cost_eur: ref.min_construction_cost_eur,\n      min_floor_area_m2: ref.min_floor_area_m2, within_years: ref.within_years }, matched: matched.map(p => p.id) };\n    const plural = n => (n === 1 ? what.replace(' references', ' reference') : what);\n    if (!concrete && (need == null || matched.length >= need)) {\n      // Enough projects meet the limits, but whether they count is a judgment: it blocks GO.\n      checks.push({ level: 'check', blocking: true, text: `${need ?? 'Some'} ${need === 1 ? plural(1) : what} asked for: decide which count${ids ? ` (could be ${ids})` : ''}` });\n    } else if (need == null) checks.push({ level: 'check', text: `${what} asked for, number not stated${ids ? ` (matching: ${ids})` : ''}` });\n    else if (matched.length >= need) checks.push({ level: 'ok', refs: true, text: `${need} ${plural(need)} OK (${ids})` });\n    else if (matched.length > 0) checks.push({ level: 'partial', text: `needs ${need} ${plural(need)}, practice has ${matched.length} (${ids})` });\n    else checks.push({ level: 'fail', text: `needs ${need} ${plural(need)}, practice has none` });\n  }\n\n  // Safety net: a requirement left to check that names an amount (money or a number with a unit) is probably a minimum\n  // the model did not put in its own field. It can't be compared here, so it blocks GO.\n  const AMOUNT = /(€|\\beur\\b|\\beuro\\b|\\bmio\\b|million|\\bkr\\b|\\bnok\\b|\\bsek\\b|\\bdkk\\b)/i;\n  for (const o of x.other_requirements) {\n    const blocking = AMOUNT.test(o.text) || AMOUNT.test(o.quote);\n    checks.push({ level: 'check', other: true, blocking, text: blocking ? `${o.text} (amount not compared)` : o.text });\n  }\n\n  const has = l => checks.some(c => c.level === l);\n  const compared = checks.some(c => ['ok', 'partial', 'fail'].includes(c.level));\n  const recommendation = has('fail') ? 'no_go' : has('partial') ? 'conditional_go'\n    // GO only for a typology the practice pursues, with every comparable minimum met and nothing with an amount left open.\n    : (!compared || !GROUP[type] || checks.some(c => c.blocking)) ? 'unresolved' : 'go';\n\n  const order = { fail: 0, partial: 1, ok: 2, check: 3 };\n  const sorted = [...checks].sort((a, b) => order[a.level] - order[b.level]);\n  // Why, short enough to read in one cell: what decides it, then at most 2 things to check.\n  const okLabels = sorted.filter(c => c.level === 'ok' && !c.refs).map(c => c.text.replace(/ OK$/, ''));\n  const main = [\n    ...sorted.filter(c => c.level === 'fail' || c.level === 'partial').map(c => c.text),\n    ...sorted.filter(c => c.level === 'ok' && c.refs).map(c => c.text),\n    ...(okLabels.length ? [`${okLabels.join(', ')} OK`] : []),\n  ];\n  // Why: only what decides the verdict, in full. Everything else the bidder must have goes to \"Also required\".\n  const decides = sorted.filter(c => c.level === 'check' && (c.blocking || !c.other)).map(c => c.text);\n  const also = checks.filter(c => c.other && !c.blocking).map(c => c.text);\n  const cap = t => t.charAt(0).toUpperCase() + t.slice(1);\n  let why = main.map(cap).join('. ');\n  if (!compared) why = x.requirements_in_documents_only ? 'Requirements are only in the tender documents' : 'Nothing in the notice the code can compare';\n  // How much of the award score is price: high means the cheapest bid tends to win, low means quality decides.\n  const pw = x.price_weight_percent?.value;\n  if (pw != null) why += `${why ? '. ' : ''}${pw >= 100 ? 'Lowest price wins (price is 100% of the score)' : `Price is ${pw}% of the score`}`;\n  if (decides.length) why += `${why ? '. ' : ''}To decide: ${decides.map(cap).join('; ')}`;\n\n  rows.push({ tender_id: req.tender_id, status: 'new', status_reason: null, recommendation, explanation: why,\n    open_questions: also, requirements: { ...x, dropped_without_quote: dropped, rules_version: s.rules_version }, reference_fit: refFit });\n});\n\n// Notices TED did not return: nothing to read, so the person checks them.\nfor (const t of requests[0]?.json.no_text ?? []) {\n  rows.push({ tender_id: t.tender_id, status: 'new', status_reason: null, recommendation: 'unresolved',\n    explanation: 'TED returned no requirement text for this notice', open_questions: [], requirements: { rules_version: s.rules_version }, reference_fit: null });\n}\nreturn [{ json: { rows, calls } }];\n"
+      },
+      "id": "c6",
+      "name": "Check fit (plain code)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Save each assessment on its tender, and log every model call with tokens and cost.\nWITH r AS (\n  SELECT * FROM jsonb_to_recordset($1::jsonb) AS t(\n    tender_id bigint, status text, status_reason text, recommendation text, explanation text,\n    open_questions text[], requirements jsonb, reference_fit jsonb)\n), upd AS (\n  UPDATE tenders t\n  SET status = r.status, status_reason = r.status_reason, recommendation = r.recommendation, explanation = r.explanation,\n      open_questions = r.open_questions, requirements = r.requirements, reference_fit = r.reference_fit, updated_at = now()\n  FROM r WHERE t.id = r.tender_id\n  RETURNING t.id, t.recommendation\n), calls AS (\n  INSERT INTO model_calls (run_id, tender_id, step, model, input_tokens, output_tokens, cost_usd, ok, error)\n  SELECT run_id, tender_id, 'assess', model, input_tokens, output_tokens, cost_usd, ok, error\n  FROM jsonb_to_recordset($2::jsonb) AS c(run_id bigint, tender_id bigint, model text, input_tokens int, output_tokens int,\n    cost_usd numeric, ok boolean, error text)\n  RETURNING cost_usd, ok\n)\nSELECT (SELECT count(*) FROM upd) AS assessed,\n       (SELECT count(*) FROM upd WHERE recommendation = 'go') AS go,\n       (SELECT count(*) FROM upd WHERE recommendation = 'conditional_go') AS conditional,\n       (SELECT count(*) FROM upd WHERE recommendation = 'unresolved') AS check_yourself,\n       (SELECT count(*) FROM upd WHERE recommendation = 'no_go') AS no_go,\n       (SELECT count(*) FROM calls WHERE NOT ok) AS failed,\n       (SELECT round(COALESCE(sum(cost_usd), 0), 4) FROM calls) AS cost_usd,\n       -- open tenders still without an assessment (more than the cap, or new ones); the next run takes them\n       (SELECT count(*) FROM (SELECT DISTINCT ON (source_id) id, recommendation, requirements, status, deadline FROM tenders\n          WHERE source = 'ted' ORDER BY source_id, first_seen_at DESC, id DESC) l\n        WHERE (l.recommendation IS NULL OR COALESCE(l.requirements->>'rules_version', '') <> $3) AND l.status <> 'failed' AND (l.deadline IS NULL OR l.deadline::date > current_date)\n          AND l.id NOT IN (SELECT id FROM upd)) AS still_waiting;\n",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.rows), JSON.stringify($json.calls), $('Settings').first().json.rules_version ] }}"
+        }
+      },
+      "id": "c7",
+      "name": "Save assessments and cost",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1320,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "tenderRadarPg",
+          "name": "tender-radar Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every morning at 07:05": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Load tenders to assess",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load tenders to assess": {
+      "main": [
+        [
+          {
+            "node": "Fetch notice texts from TED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch notice texts from TED": {
+      "main": [
+        [
+          {
+            "node": "Claude: extract requirements with quotes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: extract requirements with quotes": {
+      "main": [
+        [
+          {
+            "node": "Check fit (plain code)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check fit (plain code)": {
+      "main": [
+        [
+          {
+            "node": "Save assessments and cost",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Copenhagen"
+  }
+}

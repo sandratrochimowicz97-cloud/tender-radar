@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS tenders (
     reference_fit   JSONB,                             -- which of our reference projects meet each required reference, and what is missing
     recommendation  TEXT
         CHECK (recommendation IN ('go','conditional_go','unresolved','no_go')),
-    open_questions  TEXT[],                            -- at most 3 things to clarify before deciding
+    open_questions  TEXT[],                            -- other things the bidder must have (shown as "Also required")
     explanation     TEXT,                              -- short reasons in plain language
     first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS reference_projects (
     size_m2       NUMERIC,
     budget_eur_m  NUMERIC,
     highlights    TEXT
+);
+
+-- The practice's own facts that tenders set minimums for (loaded from db/seed.sql).
+-- The fit check compares each extracted minimum with these values; a fact that is missing here is never guessed.
+CREATE TABLE IF NOT EXISTS practice_facts (
+    name          TEXT PRIMARY KEY,                   -- 'annual_turnover_eur' | 'professional_indemnity_eur' | 'staff' | 'lead_experience_years'
+    value         NUMERIC NOT NULL,
+    note          TEXT
 );
 
 -- The partner's go/no-go decisions, with the reason. This is how the system learns the practice's judgment:
