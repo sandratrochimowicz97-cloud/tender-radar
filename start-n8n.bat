@@ -5,6 +5,8 @@ rem and it may read and write files only in the output folder. Any other n8n on 
 set "N8N_USER_FOLDER=%~dp0n8n-data"
 set "N8N_RESTRICT_FILE_ACCESS_TO=%~dp0output"
 set N8N_PORT=5680
+rem reachable from this computer only, not from the network
+set N8N_LISTEN_ADDRESS=127.0.0.1
 rem n8n's internal helper also needs a port; 5679 is taken by another n8n on 5678
 set N8N_RUNNERS_BROKER_PORT=5681
 set GENERIC_TIMEZONE=Europe/Copenhagen

@@ -15,10 +15,9 @@ CREATE TABLE IF NOT EXISTS tenders (
     url             TEXT,
     raw             JSONB       NOT NULL,              -- the notice as fetched, for audit and re-scoring
     status          TEXT        NOT NULL DEFAULT 'new'
-        CHECK (status IN ('new','filtered_out','not_relevant','shortlisted','approved','rejected','failed')),
-    status_reason   TEXT,                              -- why the rule step or the model set this status
-    relevance_score NUMERIC,                           -- 0-1 from the relevance judge
-    -- Go/no-go assessment (shortlist only), each claim backed by a quote from the notice
+        CHECK (status IN ('new','failed')),           -- failed: the assessment could not be completed
+    status_reason   TEXT,                              -- why the assessment failed
+    -- Go/no-go assessment, each claim backed by a quote from the notice
     requirements    JSONB,                             -- extracted: required references, turnover, certificates, team, deadlines; each with source quote
     reference_fit   JSONB,                             -- which of our reference projects meet each required reference, and what is missing
     recommendation  TEXT
@@ -43,7 +42,6 @@ CREATE TABLE IF NOT EXISTS runs (
     fetched_from  TIMESTAMPTZ,                         -- window start: last successful run's finished_at
     fetched       INT DEFAULT 0,
     inserted      INT DEFAULT 0,
-    shortlisted   INT DEFAULT 0,
     error         TEXT
 );
 
@@ -52,7 +50,7 @@ CREATE TABLE IF NOT EXISTS model_calls (
     id            BIGSERIAL PRIMARY KEY,
     run_id        BIGINT REFERENCES runs(id),
     tender_id     BIGINT REFERENCES tenders(id),
-    step          TEXT NOT NULL,                       -- 'relevance' | 'assess'
+    step          TEXT NOT NULL,                       -- 'assess' (the one model step)
     model         TEXT NOT NULL,
     input_tokens  INT,
     output_tokens INT,
@@ -82,8 +80,8 @@ CREATE TABLE IF NOT EXISTS practice_facts (
     note          TEXT
 );
 
--- The partner's go/no-go decisions, with the reason. This is how the system learns the practice's judgment:
--- agreement between recommendation and decision is measured weekly, and repeated reasons become rules.
+-- The partner's go/no-go decisions, with the reason, next to what the system recommended at the time.
+-- Agreement can be counted from here, and a reason that keeps repeating points to a rule the system is missing.
 CREATE TABLE IF NOT EXISTS decisions (
     id              BIGSERIAL PRIMARY KEY,
     tender_id       BIGINT NOT NULL REFERENCES tenders(id),

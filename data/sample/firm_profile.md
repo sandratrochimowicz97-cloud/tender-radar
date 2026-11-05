@@ -2,18 +2,17 @@
 
 **Practice:** "Sample Practice", a fictional 40-person architecture and landscape practice working in Denmark and Sweden. Not a real firm.
 
-## What we pursue
-- **Typologies:** schools and daycare, libraries and cultural buildings, housing (social and student), public space and landscape.
-- **Countries:** Denmark, Sweden, Norway, Germany.
-- **Scale:** construction budgets roughly EUR 2-60 million; competitions of any size if the typology fits.
-- **Procedures:** open competitions, restricted procedures, framework agreements for design services.
+This file describes the practice in words. The code does not read it; where a rule is checked by code, the place to change it is named (see also *Handover* in the README).
 
-## What we skip
-- Pure engineering or site supervision without design.
-- Hospitals and large infrastructure (no references).
-- Deadlines closer than 14 days.
+## Checked by code
+- **Countries:** Denmark, Sweden, Norway, Germany. *`COUNTRIES` in the fetch step of `n8n/fetch-ted-notices.json`.*
+- **Services:** architectural services and urban planning/landscape (CPV 712 and 714 as the main code), so pure engineering or site supervision drops out. *`CPV` and `MAIN_CPV_PREFIXES` in the same step.*
+- **Typologies pursued:** schools, daycare, libraries and cultural buildings, housing (social and student), public space and landscape. *`GROUP` in the fit check of `n8n/assess-tenders.json`.*
+- **Not pursued:** healthcare and infrastructure (no references). *`NOT_PURSUED` in the same step.*
 
-## Team limits
+## For the person deciding (not checked by code)
+- Construction budgets roughly EUR 2-60 million; competitions of any size if the typology fits.
+- Open competitions, restricted procedures, framework agreements for design services.
 - At most 3 bids in parallel.
 - Bids in Danish, Swedish, Norwegian, German or English.
 
