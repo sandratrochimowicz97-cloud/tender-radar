@@ -31,3 +31,6 @@ output/*
 
 # Option B (start-n8n.bat): the project's own n8n data, including its encryption key and credentials
 n8n-data/
+
+# MCP server dependencies (installed with npm install)
+mcp/node_modules/

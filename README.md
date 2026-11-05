@@ -25,11 +25,10 @@ TED Search API (architecture and landscape CPV codes, published since the last s
    -> requirement extraction (model, fixed JSON schema): turnover, insurance, staff, references, price weight,
       each with a quote from the notice; a value whose quote is not in the notice is dropped
    -> fit check (plain code): requirements vs the practice's own reference projects and facts
-      -> go / conditional go / unresolved / no-go, one line of why, max 3 things to check
+      -> go / conditional go / unresolved / no-go, why, and what else the notice requires
    -> daily Excel file -> partner decides go / no-go + reason -> decisions table
    -> after the award: outcome (won / lost / not submitted) -> decisions table
-   -> weekly: agreement between recommendations and decisions; repeated reasons -> new rules
-   -> MCP server (read-only): "which school competitions in Scandinavia close this month?"
+   -> MCP server (read-only, public tender facts only): "which GO tenders close this week?"
 ```
 Only 1 step calls a model (requirement extraction). Everything else is deterministic code, because ten chained steps that are each 95% reliable succeed together only about 60% of the time. The practice's references and facts never go to the model; the comparison runs in code.
 
@@ -94,7 +93,7 @@ Postgres and n8n are reachable only from the same machine.
 
 With option A, a new database gets the demo practice's references and facts automatically. For a database created earlier, load them once (safe to repeat): `docker compose exec -T db psql -U radar -d tender_radar < db/seed.sql`.
 
-*Pending:* the MCP server.
+To ask Claude about tenders in chat, see [Ask Claude about tenders](#ask-claude-about-tenders-mcp).
 
 **Troubleshooting**
 
@@ -119,6 +118,39 @@ One file, `output/Tenders.xlsx`, updated in place every morning. It is never com
 
 *The file is a local Excel file, so it can't be updated while it is open in Excel: the run stops before writing it, and the next run catches up. A practice on Microsoft 365 can use an Excel file in OneDrive or SharePoint instead, which several people can keep open while it updates.*
 
+## Ask Claude about tenders (MCP)
+A small read-only [MCP](https://modelcontextprotocol.io) server ([mcp/server.mjs](mcp/server.mjs)) lets Claude, or any MCP client, answer questions such as *"which GO tenders close this week?"* or *"any school projects in Denmark?"*.
+
+**What it can see:** only the view `public_tenders`: open tenders with title, buyer, country, deadline, link, verdict and *Also required*. All of it comes from the public notice, except the verdict.
+**What it can't see:** the *Why* text, the reference projects, the practice's facts, the extracted requirements and the partner's decisions.
+
+| Layer | What it does |
+|---|---|
+| Database login `mcp_reader` | Can read the view `public_tenders` and nothing else. Postgres refuses every other table, even if the server code had a bug ([db/mcp-reader.sql](db/mcp-reader.sql)) |
+| No writes | The login has no write rights and no temporary tables; sessions also start read-only, with a 5-second limit per query |
+| Fixed queries | Three tools (`list_tenders`, `search_tenders`, `get_tender`) with checked inputs and parameterised SQL. Claude never writes SQL |
+| Untrusted text | Results are labelled as text copied from public notices, to be treated as data, not instructions |
+
+**Limits, stated plainly:**
+- A verdict can hint at a practice fact. A NO-GO on a tender that asks for €3m insurance implies the practice has less.
+- A notice could contain text written to steer an AI. The server can only read, but if the same Claude also has tools that send email or change files, approve each of their actions yourself.
+- The reader's password sits in `.env`, like every other secret here.
+
+**Set it up:**
+1. In `.env`, set `MCP_READER_PASSWORD` to a long random password.
+2. Create the view and the login, with that password: `docker compose exec -T db psql -U radar -d tender_radar -v pw="<the password>" < db/mcp-reader.sql`. Safe to repeat.
+3. Install the server's libraries: `cd mcp && npm install`. Check it with `node mcp/smoke-test.mjs` from the repo root.
+4. Connect an MCP client. Either:
+   - **Claude Code**, from the repo folder (connects it for this folder only):
+     ```bash
+     claude mcp add tender-radar -- node "<full path to the repo>/mcp/server.mjs"
+     ```
+   - **Claude Desktop**: quit the app, then add this to `claude_desktop_config.json` (on Windows in `%APPDATA%\Claude`, on macOS in `~/Library/Application Support/Claude`), keeping everything already in the file, and start the app again:
+     ```json
+     "mcpServers": { "tender-radar": { "command": "node", "args": ["<full path to the repo>/mcp/server.mjs"] } }
+     ```
+   Use forward slashes in the path, also on Windows. The client config holds no password: the server reads it from `.env`.
+
 ## Security and data
 Built to run on a practice's own machine with real data.
 - **Data never leaves the practice's machine except in the one AI step** (requirement extraction), which sends only the public notice text. The practice's references and facts stay in its own database; the comparison is plain code.
@@ -127,6 +159,7 @@ Built to run on a practice's own machine with real data.
 - **Secrets stay in `.env`,** which is never committed (see `.gitignore`).
 - **AI coding assistants can't read secrets.** [.claude/settings.json](.claude/settings.json) denies reading `.env`, `.mcp.json`, key files and n8n's own folder, asks before commands that delete data, and turns off the mode that skips permission prompts. A hook ([protect-secrets.js](.claude/hooks/protect-secrets.js)) blocks any command or search that names a secrets file. Per the [Claude Code docs](https://code.claude.com/docs/en/permissions), these rules cover Claude's own tools, not every program, so the same file also turns on Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) for OS-level isolation. The sandbox runs on macOS, Linux and WSL2; on native Windows, run Claude Code inside WSL2 to get it.
 - **n8n workflows can't read environment variables** (`N8N_BLOCK_ENV_ACCESS_IN_NODE=true` in the Docker setup), and n8n stores credentials encrypted.
+- **The MCP server sees public tender facts only.** When someone asks Claude about tenders, the answer's data (titles, buyers, deadlines, verdicts) goes to Anthropic as part of that chat. A database login that can read nothing else enforces it (see [Ask Claude about tenders](#ask-claude-about-tenders-mcp)).
 - **Personal data in TED notices** (contact persons) stays in the local database and is never committed.
 - **With client data,** a data processing agreement names Anthropic as sub-processor.
 
