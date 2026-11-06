@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS tenders (
     id              BIGSERIAL PRIMARY KEY,
     source          TEXT        NOT NULL,              -- 'ted' (later: one portal via browser automation)
     source_id       TEXT        NOT NULL,              -- the notice ID at the source
-    content_hash    TEXT        NOT NULL,              -- hash of the fields we score on; changes if the notice is amended
+    content_hash    TEXT        NOT NULL,              -- hash of the whole notice as fetched; changes if the notice is amended
     title           TEXT        NOT NULL,
     buyer           TEXT,
     country         CHAR(2),

@@ -9,8 +9,9 @@ SELECT notice_id, title, buyer, country, deadline, url, verdict, also_required, 
 FROM (
   SELECT DISTINCT ON (source_id)
          source_id AS notice_id, title, buyer, country, deadline::date AS deadline, url,
-         CASE recommendation WHEN 'go' THEN 'GO' WHEN 'conditional_go' THEN 'CONDITIONAL'
-                             WHEN 'unresolved' THEN 'CHECK YOURSELF' WHEN 'no_go' THEN 'NO-GO' END AS verdict,
+         CASE WHEN status = 'failed' THEN 'ASSESSMENT FAILED'
+              ELSE CASE recommendation WHEN 'go' THEN 'GO' WHEN 'conditional_go' THEN 'CONDITIONAL'
+                   WHEN 'unresolved' THEN 'CHECK YOURSELF' WHEN 'no_go' THEN 'NO-GO' END END AS verdict,
          open_questions AS also_required,          -- taken from the notice text, not from the practice's data
          first_seen_at::date AS added_on
   FROM tenders

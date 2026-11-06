@@ -1,6 +1,6 @@
 # Firm profile (invented for this demo)
 
-**Practice:** "Sample Practice", a fictional 40-person architecture and landscape practice working in Denmark and Sweden. Not a real firm.
+**Practice:** "Sample Practice", a fictional 40-person architecture and landscape practice based in Denmark, bidding in Denmark, Sweden, Norway and Germany. Not a real firm.
 
 This file describes the practice in words. The code does not read it; where a rule is checked by code, the place to change it is named (see also *Handover* in the README).
 

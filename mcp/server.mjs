@@ -60,7 +60,7 @@ const reply = rows => ({ content: [{ type: 'text', text: JSON.stringify({
   count: rows.length, tenders: rows.map(shape),
 }, null, 2) }] });
 const COLS = 'notice_id, title, buyer, country, deadline, url, verdict, also_required, added_on';
-const VERDICTS = ['GO', 'CONDITIONAL', 'CHECK YOURSELF', 'NO-GO'];
+const VERDICTS = ['GO', 'CONDITIONAL', 'CHECK YOURSELF', 'NO-GO', 'ASSESSMENT FAILED'];
 
 const server = new McpServer({ name: 'tender-radar', version: '1.0.0' });
 
@@ -68,7 +68,7 @@ server.registerTool('list_tenders', {
   title: 'List open tenders',
   description: 'Open architecture and landscape tenders from TED, nearest deadline first. Filter by verdict, country or days until the deadline.',
   inputSchema: {
-    verdict: z.enum(VERDICTS).optional().describe('GO, CONDITIONAL, CHECK YOURSELF or NO-GO'),
+    verdict: z.enum(VERDICTS).optional().describe('GO, CONDITIONAL, CHECK YOURSELF, NO-GO or ASSESSMENT FAILED'),
     country: z.string().regex(/^[A-Za-z]{2}$/).optional().describe('Two-letter country code, e.g. DE'),
     closing_within_days: z.number().int().min(1).max(365).optional(),
     limit: z.number().int().min(1).max(50).default(20),
