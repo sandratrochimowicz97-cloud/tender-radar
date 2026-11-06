@@ -1,6 +1,6 @@
 # Tender go/no-go assistant for design practices
 
-> **Status: in progress (v1, Oct-Nov 2026).** Numbers come from real runs, never estimates.
+> **Version 1 (November 2026).** Numbers come from real runs, never estimates.
 
 An in-house assistant that screens public architecture tenders the way a practice's own partner would, and keeps the partner's decisions next to its own recommendations, so its rules can be improved from real disagreements.
 
